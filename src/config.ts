@@ -28,8 +28,13 @@ const DEFAULT_CONFIG: Config = {
   verbose: false,
   dryRun: false,
   rules: [
+    // Playwright MCP
     { toolName: 'browser_take_screenshot', strategy: 'ocr' },
     { toolName: 'browser_snapshot', strategy: 'dom-cleanup' },
+    // Puppeteer MCP
+    { toolName: 'puppeteer_screenshot', strategy: 'ocr' },
+    { toolName: 'puppeteer_snapshot', strategy: 'dom-cleanup' },
+    // Default: auto for text, passthrough for images (safe for image generation MCP etc.)
     { toolNamePattern: '.*', strategy: 'auto' },
   ],
 };

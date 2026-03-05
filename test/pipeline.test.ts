@@ -52,6 +52,15 @@ describe('compressResult', () => {
     expect(compressed.content![0].text).toContain('[... truncated');
   });
 
+  it('passes through images for unknown tools (safe for image generation MCP)', () => {
+    const fakeBase64 = 'A'.repeat(5000); // big enough to pass threshold
+    const result = { content: [{ type: 'image', data: fakeBase64, mimeType: 'image/png' }] };
+    const compressed = compressResult('generate_image', result, baseConfig);
+    // auto strategy should NOT OCR unknown image tools — passthrough
+    expect(compressed.content![0].type).toBe('image');
+    expect(compressed.content![0].data).toBe(fakeBase64);
+  });
+
   it('dry-run does not modify result', () => {
     const bigText = 'x'.repeat(20000);
     const result = { content: [{ type: 'text', text: bigText }] };

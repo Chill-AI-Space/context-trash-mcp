@@ -19,7 +19,7 @@ interface CallToolResult {
 
 function strategyForContentType(contentType: ContentType): Strategy {
   switch (contentType) {
-    case 'image': return 'ocr';
+    case 'image': return 'passthrough'; // OCR only via explicit whitelist rules — safe for image generation MCP etc.
     case 'dom-snapshot': return 'dom-cleanup';
     case 'large-text': return 'truncate';
     case 'small-text': return 'passthrough';
