@@ -97,6 +97,7 @@ export async function compressResult(
   const strategy: Strategy = rule?.strategy ?? 'auto';
   const maxTokens = rule?.maxTokens ?? config.maxTextTokens;
 
+  const startTime = Date.now();
   log(`${toolName}: ${totalBefore.toLocaleString()} tokens, strategy=${strategy}`);
 
   if (config.dryRun) {
@@ -138,7 +139,14 @@ export async function compressResult(
     return result;
   }
 
-  logStats(toolName, totalBefore, totalAfter);
+  // Detect dominant content type for event log
+  const contentTypes = result.content.map((b) => {
+    if (b.type === 'image') return 'image';
+    return classifyContent(b, config.threshold, config.maxTextTokens);
+  });
+  const dominantType = contentTypes.find((t) => t !== 'small-text') ?? contentTypes[0];
+
+  logStats(toolName, totalBefore, totalAfter, strategy, dominantType, startTime);
 
   return { ...result, content: compressedContent };
 }
