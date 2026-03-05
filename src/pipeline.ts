@@ -5,6 +5,7 @@ import { compressDomCleanup } from './compressors/dom-cleanup.js';
 import { compressTruncate } from './compressors/truncate.js';
 import { compressJsonCollapse } from './compressors/json-collapse.js';
 import { log, logStats, logError } from './logger.js';
+import { ToolContext } from './query-builder.js';
 
 interface ContentBlock {
   type: string;
@@ -47,11 +48,12 @@ function blockTokenEstimate(block: ContentBlock): number {
   return 0;
 }
 
-function compressBlock(
+async function compressBlock(
   block: ContentBlock,
   strategy: Strategy,
   config: Config,
-): ContentBlock {
+  toolContext?: ToolContext,
+): Promise<ContentBlock> {
   switch (strategy) {
     case 'ocr':
       return compressOCR(block, config.ocrEngine);
@@ -60,22 +62,23 @@ function compressBlock(
     case 'json-collapse':
       return compressJsonCollapse(block, config.maxTextTokens);
     case 'truncate':
-      return compressTruncate(block, config.maxTextTokens);
+      return compressTruncate(block, config.maxTextTokens, toolContext, config.geminiApiKey);
     case 'passthrough':
       return block;
     case 'auto': {
       const contentType = classifyContent(block, config.threshold, config.maxTextTokens);
       const autoStrategy = strategyForContentType(contentType);
-      return compressBlock(block, autoStrategy, config);
+      return compressBlock(block, autoStrategy, config, toolContext);
     }
   }
 }
 
-export function compressResult(
+export async function compressResult(
   toolName: string,
   result: CallToolResult,
   config: Config,
-): CallToolResult {
+  toolContext?: ToolContext,
+): Promise<CallToolResult> {
   if (!result.content || !Array.isArray(result.content) || result.content.length === 0) {
     return result;
   }
@@ -105,7 +108,8 @@ export function compressResult(
   const hasFilePath = resultHasFilePath(result.content);
 
   // Compress each block
-  const compressedContent = result.content.map((block) => {
+  const compressedContent: ContentBlock[] = [];
+  for (const block of result.content) {
     try {
       let blockStrategy = strategy;
 
@@ -118,17 +122,17 @@ export function compressResult(
       const effectiveConfig = maxTokens !== config.maxTextTokens
         ? { ...config, maxTextTokens: maxTokens }
         : config;
-      return compressBlock(block, blockStrategy, effectiveConfig);
+      const compressed = await compressBlock(block, blockStrategy, effectiveConfig, toolContext);
+      compressedContent.push(compressed);
     } catch (err) {
       logError(`Compressor failed for ${toolName}: ${err}`);
-      return block; // fail-safe: return original
+      compressedContent.push(block); // fail-safe: return original
     }
-  });
+  }
 
   const totalAfter = compressedContent.reduce((sum, b) => sum + blockTokenEstimate(b), 0);
 
   // If compression made result significantly larger (>10%), return original
-  // Exception: OCR (changes type) and explicit rules (user chose this strategy)
   if (totalAfter > totalBefore * 1.1 && strategy === 'auto') {
     log(`${toolName}: compression increased size (${totalBefore} → ${totalAfter}), keeping original`);
     return result;

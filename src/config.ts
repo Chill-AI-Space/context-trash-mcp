@@ -18,6 +18,8 @@ export interface Config {
   ocrEngine: 'auto' | 'vision' | 'tesseract';
   verbose: boolean;
   dryRun: boolean;
+  activationBytes: number;
+  geminiApiKey?: string;
   rules: Rule[];
 }
 
@@ -27,6 +29,7 @@ const DEFAULT_CONFIG: Config = {
   ocrEngine: 'auto',
   verbose: false,
   dryRun: false,
+  activationBytes: 400_000,
   rules: [
     { toolName: 'browser_snapshot', strategy: 'dom-cleanup' },
     { toolName: 'puppeteer_snapshot', strategy: 'dom-cleanup' },
