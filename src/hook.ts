@@ -2,6 +2,8 @@ import * as fs from 'node:fs';
 import { Config, loadConfig } from './config.js';
 import { compressResult } from './pipeline.js';
 import { setVerbose, log, logError } from './logger.js';
+import { ToolContext } from './query-builder.js';
+import { recordCall, getRecentCalls } from './session.js';
 
 /**
  * PostToolUse hook handler for Claude Code.
@@ -151,9 +153,13 @@ export async function handleHook(configOrPath?: Config | string): Promise<void> 
     process.exit(0); // non-blocking: exit 0 to not interfere
   }
 
-  const { tool_name, tool_response } = input;
+  const { tool_name, tool_input, tool_response } = input;
 
   log(`Hook: ${tool_name}`);
+
+  // Track this call for session context (intent inheritance)
+  const shortName = shortToolName(tool_name);
+  recordCall(shortName, tool_input);
 
   // Normalize response to our format
   const normalized = normalizeResponse(tool_response);
@@ -168,11 +174,15 @@ export async function handleHook(configOrPath?: Config | string): Promise<void> 
     process.exit(0);
   }
 
-  // Use the short tool name for rule matching (e.g. browser_take_screenshot, not mcp__playwright__browser_take_screenshot)
-  const shortName = shortToolName(tool_name);
+  // Build tool context for BM25 relevance ranking
+  const toolContext: ToolContext = {
+    toolName: shortName,
+    toolArgs: tool_input,
+    previousCalls: getRecentCalls(3),
+  };
 
   // Run through the compression pipeline
-  const compressed = await compressResult(shortName, normalized, config);
+  const compressed = await compressResult(shortName, normalized, config, toolContext);
 
   // If nothing changed (pipeline returned the same object), exit silently
   if (compressed === normalized) {

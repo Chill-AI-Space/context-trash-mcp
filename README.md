@@ -59,28 +59,26 @@ Images are only OCR'd when there's a file path in the sibling text blocks (meani
 
 ## Installation
 
-### Proxy mode (wrap any MCP server)
-
-Modify your MCP server command to go through context-trash-mcp:
-
-```bash
-# Before:
-npx @playwright/mcp@latest --cdp-endpoint http://localhost:9222
-
-# After:
-node /path/to/context-trash-mcp/dist/index.js \
-  --wrap "npx @playwright/mcp@latest --cdp-endpoint http://localhost:9222" \
-  --verbose
-```
-
-### Hook mode (Claude Code PostToolUse)
+### Hook mode (recommended — works with ALL tools)
 
 ```bash
 npx context-trash-mcp install
 # Restart Claude Code
 ```
 
-This adds a PostToolUse hook to `~/.claude/settings.json` that compresses tool results in-place.
+This adds a `PostToolUse` hook to `~/.claude/settings.json` that intercepts ALL tool results (MCP and built-in) and compresses them before Claude processes them. No need to modify any MCP server configs.
+
+The hook receives `tool_name`, `tool_input`, and `tool_response` — so it has full context for BM25 relevance ranking and session intent tracking.
+
+### Proxy mode (alternative — wrap a specific MCP server)
+
+If you prefer to wrap a specific server instead of using hooks:
+
+```bash
+context-trash-mcp --wrap "npx @playwright/mcp@latest --cdp-endpoint http://localhost:9222" --verbose
+```
+
+This is useful for testing or when you want compression only for specific servers.
 
 ### From npm
 

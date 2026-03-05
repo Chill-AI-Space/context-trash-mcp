@@ -21,8 +21,8 @@ interface Settings {
   [key: string]: unknown;
 }
 
-const HOOK_COMMAND = 'context-trash-mcp --hook';
-const HOOK_MATCHER = 'mcp__.*';
+const HOOK_COMMAND = 'context-trash-mcp --hook --verbose';
+const HOOK_MATCHER = '.*';
 
 function loadSettings(): Settings {
   if (!fs.existsSync(SETTINGS_PATH)) {
@@ -80,7 +80,7 @@ export function installHook(): void {
 
   saveSettings(settings);
   logAlways('Context Trash hook installed in ~/.claude/settings.json');
-  logAlways('Matcher: mcp__.* (all MCP tool results)');
+  logAlways('Matcher: .* (all tool results)');
   logAlways('Restart Claude Code for the hook to take effect.');
 }
 
