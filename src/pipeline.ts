@@ -32,10 +32,17 @@ function strategyForContentType(contentType: ContentType): Strategy {
 // File path patterns in text blocks: markdown links, bare paths, URLs to local files
 const FILE_PATH_PATTERN = /(?:]\(|href=["']?|src=["']?)?\/?(?:\/[\w./-]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff))/i;
 
+// Tools that are known to save screenshots to disk (original always exists)
+const SCREENSHOT_TOOLS = ['browser_take_screenshot', 'browser_screenshot', 'screenshot', 'take_screenshot'];
+
 function resultHasFilePath(content: ContentBlock[]): boolean {
   return content.some(
     (block) => block.type === 'text' && block.text && FILE_PATH_PATTERN.test(block.text),
   );
+}
+
+function isScreenshotTool(toolName: string): boolean {
+  return SCREENSHOT_TOOLS.some((t) => toolName.includes(t));
 }
 
 function blockTokenEstimate(block: ContentBlock): number {
@@ -105,8 +112,9 @@ export async function compressResult(
     return result;
   }
 
-  // For auto strategy: only OCR images if result contains a file path (image is on disk)
+  // For auto strategy: only OCR images if we know the original exists on disk
   const hasFilePath = resultHasFilePath(result.content);
+  const knownScreenshot = isScreenshotTool(toolName);
 
   // Compress each block
   const compressedContent: ContentBlock[] = [];
@@ -114,8 +122,8 @@ export async function compressResult(
     try {
       let blockStrategy = strategy;
 
-      // Auto + image + no file path = passthrough (base64 is the only copy)
-      if (strategy === 'auto' && block.type === 'image' && !hasFilePath) {
+      // Auto + image + no file path + not a known screenshot tool = passthrough (base64 is the only copy)
+      if (strategy === 'auto' && block.type === 'image' && !hasFilePath && !knownScreenshot) {
         log(`${toolName}: image has no file path in result, keeping original`);
         blockStrategy = 'passthrough';
       }

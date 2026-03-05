@@ -100,6 +100,18 @@ function shortToolName(toolName: string): string {
 function normalizeResponse(response: unknown): { content: ContentBlock[] } | null {
   if (!response) return null;
 
+  // Array of content blocks directly (e.g., MCP tool responses via hooks)
+  if (Array.isArray(response)) {
+    if (response.length === 0) return null;
+    // Check if it looks like content blocks
+    if (typeof response[0] === 'object' && response[0] !== null && 'type' in response[0]) {
+      return { content: response as ContentBlock[] };
+    }
+    // Array of something else — wrap as JSON text
+    const text = JSON.stringify(response);
+    return { content: [{ type: 'text', text }] };
+  }
+
   if (typeof response === 'object' && response !== null) {
     const r = response as Record<string, unknown>;
     if (Array.isArray(r.content)) {
