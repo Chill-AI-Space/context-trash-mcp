@@ -2,8 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-const PREFIX = '[context-trash]';
-const LOG_DIR = path.join(os.homedir(), '.local', 'share', 'context-trash');
+const PREFIX = '[compress-on-input]';
+const LOG_DIR = path.join(os.homedir(), '.local', 'share', 'compress-on-input');
 const LOG_FILE = path.join(LOG_DIR, 'events.jsonl');
 
 let verboseEnabled = false;

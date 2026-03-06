@@ -4,10 +4,12 @@ import { loadConfig, findRule } from '../src/config.js';
 describe('loadConfig', () => {
   it('returns default config when no file exists', () => {
     const config = loadConfig('/nonexistent/path.json');
-    expect(config.threshold).toBe(500);
-    expect(config.maxTextTokens).toBe(2000);
+    expect(config.imageOcr).toBe(true);
+    expect(config.jsonCollapse).toBe(true);
+    expect(config.textCompressionThreshold).toBe(100_000);
     expect(config.ocrEngine).toBe('auto');
     expect(config.rules.length).toBeGreaterThan(0);
+    expect(config.compressionPrompt).toContain('{TARGET}');
   });
 });
 

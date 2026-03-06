@@ -21,7 +21,7 @@ interface Settings {
   [key: string]: unknown;
 }
 
-const HOOK_COMMAND = 'context-trash-mcp --hook --verbose';
+const HOOK_COMMAND = 'compress-on-input --hook --verbose';
 const HOOK_MATCHER = '.*';
 
 function loadSettings(): Settings {
@@ -43,8 +43,8 @@ function saveSettings(settings: Settings): void {
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
 }
 
-function isContextTrashHook(handler: HookHandler): boolean {
-  return handler.command.includes('context-trash-mcp');
+function isCompressOnInputHook(handler: HookHandler): boolean {
+  return handler.command.includes('compress-on-input');
 }
 
 export function installHook(): void {
@@ -59,11 +59,11 @@ export function installHook(): void {
 
   // Check if already installed
   const existing = settings.hooks.PostToolUse.some(
-    (group) => group.hooks?.some(isContextTrashHook),
+    (group) => group.hooks?.some(isCompressOnInputHook),
   );
 
   if (existing) {
-    logAlways('Context Trash hook is already installed.');
+    logAlways('compress-on-input hook is already installed.');
     return;
   }
 
@@ -79,7 +79,7 @@ export function installHook(): void {
   });
 
   saveSettings(settings);
-  logAlways('Context Trash hook installed in ~/.claude/settings.json');
+  logAlways('compress-on-input hook installed in ~/.claude/settings.json');
   logAlways('Matcher: .* (all tool results)');
   logAlways('Restart Claude Code for the hook to take effect.');
 }
@@ -88,17 +88,17 @@ export function uninstallHook(): void {
   const settings = loadSettings();
 
   if (!settings.hooks?.PostToolUse) {
-    logAlways('No Context Trash hook found.');
+    logAlways('No compress-on-input hook found.');
     return;
   }
 
   const before = settings.hooks.PostToolUse.length;
   settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
-    (group) => !group.hooks?.some(isContextTrashHook),
+    (group) => !group.hooks?.some(isCompressOnInputHook),
   );
 
   if (settings.hooks.PostToolUse.length === before) {
-    logAlways('No Context Trash hook found.');
+    logAlways('No compress-on-input hook found.');
     return;
   }
 
@@ -111,6 +111,6 @@ export function uninstallHook(): void {
   }
 
   saveSettings(settings);
-  logAlways('Context Trash hook removed from ~/.claude/settings.json');
+  logAlways('compress-on-input hook removed from ~/.claude/settings.json');
   logAlways('Restart Claude Code for changes to take effect.');
 }

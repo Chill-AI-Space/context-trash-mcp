@@ -1,5 +1,5 @@
 /**
- * E2E smoke test: context-trash-mcp wrapping real Playwright MCP
+ * E2E smoke test: compress-on-input wrapping real Playwright MCP
  *
  * Sends JSON-RPC messages to proxy → Playwright MCP, captures responses,
  * measures compression.
@@ -67,7 +67,7 @@ function tokenEstimate(content) {
 }
 
 async function run() {
-  console.log('=== context-trash-mcp Smoke Test with Playwright MCP ===\n');
+  console.log('=== compress-on-input Smoke Test with Playwright MCP ===\n');
 
   // 1. Initialize
   console.log('1. Initializing MCP connection...');
@@ -92,7 +92,7 @@ async function run() {
   console.log('\n3. Navigating to github.com (more complex DOM)...');
   const navResult = await send('tools/call', {
     name: 'browser_navigate',
-    arguments: { url: 'https://github.com/Chill-AI-Space/context-trash-mcp' }
+    arguments: { url: 'https://github.com/Chill-AI-Space/compress-on-input' }
   });
   const navTokens = tokenEstimate(navResult.result?.content);
   console.log(`   Navigate result: ${navTokens} tokens`);

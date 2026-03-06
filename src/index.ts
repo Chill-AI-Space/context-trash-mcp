@@ -13,57 +13,31 @@ interface ParsedArgs {
   verbose: boolean;
   dryRun: boolean;
   ocrEngine?: string;
-  maxTextTokens?: number;
-  threshold?: number;
+  textThreshold?: number;
   geminiApiKey?: string;
 }
 
 function parseArgs(args: string[]): ParsedArgs {
   const result: ParsedArgs = { mode: 'proxy', verbose: false, dryRun: false };
 
-  // Check for subcommands first
-  if (args[0] === 'install') {
-    result.mode = 'install';
-    return result;
-  }
-  if (args[0] === 'uninstall') {
-    result.mode = 'uninstall';
-    return result;
-  }
-  if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
-    result.mode = 'help';
-    return result;
-  }
+  if (args[0] === 'install') { result.mode = 'install'; return result; }
+  if (args[0] === 'uninstall') { result.mode = 'uninstall'; return result; }
+  if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') { result.mode = 'help'; return result; }
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--hook':
-        result.mode = 'hook';
-        break;
-      case '--wrap':
-        result.wrap = args[++i];
-        break;
-      case '--config':
-        result.config = args[++i];
-        break;
-      case '--verbose':
-        result.verbose = true;
-        break;
-      case '--dry-run':
-        result.dryRun = true;
-        break;
-      case '--ocr-engine':
-        result.ocrEngine = args[++i];
-        break;
-      case '--max-text-tokens':
-        result.maxTextTokens = parseInt(args[++i], 10);
-        break;
-      case '--threshold':
-        result.threshold = parseInt(args[++i], 10);
-        break;
-      case '--gemini-api-key':
-        result.geminiApiKey = args[++i];
-        break;
+      case '--hook': result.mode = 'hook'; break;
+      case '--wrap': result.wrap = args[++i]; break;
+      case '--config': result.config = args[++i]; break;
+      case '--verbose': result.verbose = true; break;
+      case '--dry-run': result.dryRun = true; break;
+      case '--ocr-engine': result.ocrEngine = args[++i]; break;
+      case '--text-threshold': result.textThreshold = parseInt(args[++i], 10); break;
+      case '--gemini-api-key': result.geminiApiKey = args[++i]; break;
+      // Deprecated flags — silently ignore
+      case '--threshold': case '--max-text-tokens': case '--min-block-tokens':
+      case '--activation-bytes': case '--aggressive-percent':
+        i++; break;
       default:
         if (args[i].startsWith('-')) {
           logError(`Unknown flag: ${args[i]}`);
@@ -76,31 +50,37 @@ function parseArgs(args: string[]): ParsedArgs {
 }
 
 function printHelp(): void {
-  logAlways(`context-trash-mcp — Compress bloated tool results before they enter Claude's context
+  logAlways(`compress-on-input — Compress bloated tool results before they enter Claude's context
 
 MODES:
   Hook mode (recommended):
-    context-trash-mcp --hook              Runs as Claude Code PostToolUse hook.
+    compress-on-input --hook              Runs as Claude Code PostToolUse hook.
                                           Reads JSON from stdin, outputs compressed result.
 
   Proxy mode:
-    context-trash-mcp --wrap "cmd args"   Wraps an MCP server, compresses results in transit.
+    compress-on-input --wrap "cmd args"   Wraps an MCP server, compresses results in transit.
 
   Install/uninstall:
-    context-trash-mcp install             Add hook to ~/.claude/settings.json
-    context-trash-mcp uninstall           Remove hook from ~/.claude/settings.json
+    compress-on-input install             Add hook to ~/.claude/settings.json
+    compress-on-input uninstall           Remove hook from ~/.claude/settings.json
+
+WHAT GETS COMPRESSED:
+  Screenshots (base64)   → OCR text extraction (~99% reduction)
+  DOM snapshots          → Cleanup + ref mapping (~50-70% reduction)
+  Large JSON arrays      → Schema-aware collapse (~60-90% reduction)
+  Huge text (>100k tok)  → BM25 + Gemini smart compression (~50% reduction)
+  Everything else        → Untouched (Claude is smart, don't dumb down input)
 
 OPTIONS:
-  --config <path>          Path to config file (default: ~/.config/context-trash/config.json)
-  --verbose                Log compression stats to stderr
-  --dry-run                Log what would be compressed without modifying results
-  --ocr-engine <engine>    auto | vision | tesseract (default: auto)
-  --max-text-tokens <n>    Max tokens for text content before truncation (default: 2000)
-  --threshold <n>          Min token estimate to trigger compression (default: 500)
-  --gemini-api-key <key>   Gemini API key for smart compression (or set GEMINI_API_KEY env var)
+  --config <path>             Config file (default: ~/.config/compress-on-input/config.json)
+  --verbose                   Log compression stats to stderr
+  --dry-run                   Log without modifying results
+  --ocr-engine <engine>       auto | vision | tesseract (default: auto)
+  --text-threshold <n>        Min tokens for text compression (default: 100000)
+  --gemini-api-key <key>      Gemini API key (or set GEMINI_API_KEY env var)
 
 QUICK START:
-  npx context-trash-mcp install          # One-time setup
+  npx compress-on-input install          # One-time setup
   # Restart Claude Code — done!`);
 }
 
@@ -121,21 +101,20 @@ async function main(): Promise<void> {
       break;
 
     case 'hook': {
-      const hookConfig = loadConfig(args.config);
-      if (args.verbose) hookConfig.verbose = true;
-      if (args.dryRun) hookConfig.dryRun = true;
-      if (args.ocrEngine) hookConfig.ocrEngine = args.ocrEngine as typeof hookConfig.ocrEngine;
-      if (args.maxTextTokens) hookConfig.maxTextTokens = args.maxTextTokens;
-      if (args.threshold) hookConfig.threshold = args.threshold;
-      hookConfig.geminiApiKey = args.geminiApiKey ?? process.env.GEMINI_API_KEY ?? hookConfig.geminiApiKey;
-      await handleHook(hookConfig);
+      const config = loadConfig(args.config);
+      if (args.verbose) config.verbose = true;
+      if (args.dryRun) config.dryRun = true;
+      if (args.ocrEngine) config.ocrEngine = args.ocrEngine as typeof config.ocrEngine;
+      if (args.textThreshold) config.textCompressionThreshold = args.textThreshold;
+      config.geminiApiKey = args.geminiApiKey ?? process.env.GEMINI_API_KEY ?? config.geminiApiKey;
+      await handleHook(config);
       break;
     }
 
     case 'proxy': {
       if (!args.wrap) {
         logError('Missing --wrap flag. Use --hook for hook mode, or --wrap "cmd" for proxy mode.');
-        logError('Run context-trash-mcp --help for usage.');
+        logError('Run compress-on-input --help for usage.');
         process.exit(1);
       }
 
@@ -143,13 +122,12 @@ async function main(): Promise<void> {
       if (args.verbose) config.verbose = true;
       if (args.dryRun) config.dryRun = true;
       if (args.ocrEngine) config.ocrEngine = args.ocrEngine as typeof config.ocrEngine;
-      if (args.maxTextTokens) config.maxTextTokens = args.maxTextTokens;
-      if (args.threshold) config.threshold = args.threshold;
+      if (args.textThreshold) config.textCompressionThreshold = args.textThreshold;
       config.geminiApiKey = args.geminiApiKey ?? process.env.GEMINI_API_KEY ?? config.geminiApiKey;
 
       setVerbose(config.verbose);
       logAlways(`Wrapping: ${args.wrap}`);
-      logAlways(`Threshold: ${config.threshold} tokens, Max text: ${config.maxTextTokens} tokens`);
+      logAlways(`Text threshold: ${config.textCompressionThreshold.toLocaleString()} tokens, OCR: ${config.imageOcr}, JSON collapse: ${config.jsonCollapse}`);
 
       startProxy(args.wrap, config);
       break;

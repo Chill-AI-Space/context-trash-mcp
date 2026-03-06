@@ -1,9 +1,9 @@
 {
-  "name": "context-trash-mcp",
+  "name": "compress-on-input",
   "version": "0.1.0",
   "description": "MCP proxy that compresses bloated tool results before they enter Claude's context window",
   "bin": {
-    "context-trash-mcp": "./dist/index.js"
+    "compress-on-input": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

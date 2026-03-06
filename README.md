@@ -1,4 +1,4 @@
-# context-trash-mcp
+# compress-on-input
 
 > Compress bloated tool results before they eat Claude's context window. Zero runtime dependencies.
 
@@ -11,10 +11,10 @@
 
 ```bash
 # Install globally
-npm install -g context-trash-mcp
+npm install -g compress-on-input
 
 # Add hook to Claude Code (one-time setup)
-context-trash-mcp install
+compress-on-input install
 
 # Restart Claude Code — done!
 ```
@@ -25,21 +25,21 @@ That's it. Every tool result is now automatically compressed before entering Cla
 
 MCP tools return massive payloads that burn through Claude's context window:
 
-| Source | Typical Size | With context-trash |
+| Source | Typical Size | With compress-on-input |
 |---|---|---|
 | Screenshot (base64) | ~250k tokens | ~500 tokens (OCR text) |
 | DOM snapshot | 10-50k tokens | 3-15k tokens |
 | API response (500 rows) | 50-100k tokens | 2-5k tokens |
 | Large text/docs | 10-50k tokens | 3-20k tokens |
 
-Claude's attention is O(n²). More tokens = slower responses, higher cost, earlier compaction. context-trash-mcp fixes this at the source.
+Claude's attention is O(n²). More tokens = slower responses, higher cost, earlier compaction. compress-on-input fixes this at the source.
 
 ## How It Works
 
-context-trash-mcp installs as a `PostToolUse` hook in Claude Code. After every tool call, it intercepts the result and compresses it before Claude sees it.
+compress-on-input installs as a `PostToolUse` hook in Claude Code. After every tool call, it intercepts the result and compresses it before Claude sees it.
 
 ```
-Tool executes → Hook fires → context-trash compresses → Claude receives compressed result
+Tool executes → Hook fires → compress-on-input compresses → Claude receives compressed result
 ```
 
 Works with **all tools** — MCP servers (Playwright, databases, APIs) and built-in tools (Read, Bash, Grep). No need to configure each server individually.
@@ -86,8 +86,8 @@ Chunks are ranked by BM25 similarity to this query. Top chunks (by relevance, in
 Works with **all** tools automatically:
 
 ```bash
-npm install -g context-trash-mcp
-context-trash-mcp install
+npm install -g compress-on-input
+compress-on-input install
 # Restart Claude Code (exit + claude)
 ```
 
@@ -99,7 +99,7 @@ This adds to `~/.claude/settings.json`:
       "matcher": ".*",
       "hooks": [{
         "type": "command",
-        "command": "context-trash-mcp --hook --verbose",
+        "command": "compress-on-input --hook --verbose",
         "timeout": 15
       }]
     }]
@@ -111,7 +111,7 @@ This adds to `~/.claude/settings.json`:
 
 ```bash
 # In ~/.claude.json, change MCP server command:
-context-trash-mcp --wrap "npx @playwright/mcp@latest --cdp-endpoint http://localhost:9222" --verbose
+compress-on-input --wrap "npx @playwright/mcp@latest --cdp-endpoint http://localhost:9222" --verbose
 ```
 
 Useful for testing or when you only want compression for specific servers.
@@ -119,8 +119,8 @@ Useful for testing or when you only want compression for specific servers.
 ### From source
 
 ```bash
-git clone https://github.com/Chill-AI-Space/context-trash-mcp.git
-cd context-trash-mcp
+git clone https://github.com/Chill-AI-Space/compress-on-input.git
+cd compress-on-input
 npm install --include=dev
 npm run build
 # Then: node dist/index.js install
@@ -129,7 +129,7 @@ npm run build
 ### Uninstall
 
 ```bash
-context-trash-mcp uninstall
+compress-on-input uninstall
 # Restart Claude Code
 ```
 
@@ -137,7 +137,7 @@ context-trash-mcp uninstall
 
 ### Config file
 
-`~/.config/context-trash/config.json`:
+`~/.config/compress-on-input/config.json`:
 
 ```json
 {
@@ -206,7 +206,7 @@ Rules match tool names in order. First match wins. Default is `auto` (content-aw
 ## Compressors in Detail
 
 ### OCR
-- **macOS**: Compiles and caches a Swift binary using Apple Vision framework at `~/.cache/context-trash/vision-ocr-{hash}`
+- **macOS**: Compiles and caches a Swift binary using Apple Vision framework at `~/.cache/compress-on-input/vision-ocr-{hash}`
 - **Other OS**: Falls back to Tesseract (`tesseract` must be in PATH)
 - Quality check: if OCR returns <7 non-whitespace chars → keeps original image
 - **Safety**: Only OCRs images when a file path exists in sibling text blocks (original is on disk). Generated images (base64-only) pass through untouched.
@@ -286,12 +286,12 @@ npm run build      # compile TypeScript
 **Hook not firing?**
 - Check `~/.claude/settings.json` has the PostToolUse hook
 - Restart Claude Code after installing (`/exit` + `claude`)
-- Run `context-trash-mcp --hook --verbose` manually with test input
+- Run `compress-on-input --hook --verbose` manually with test input
 
 **OCR not working?**
 - macOS: Should work automatically (Apple Vision framework)
 - Linux: Install `tesseract` (`apt install tesseract-ocr`)
-- Check: `context-trash-mcp --hook --verbose` will log OCR errors to stderr
+- Check: `compress-on-input --hook --verbose` will log OCR errors to stderr
 
 **Want to disable for specific tools?**
 ```json
@@ -314,6 +314,5 @@ MIT
 
 ## Links
 
-- [GitHub](https://github.com/Chill-AI-Space/context-trash-mcp)
-- [npm](https://www.npmjs.com/package/context-trash-mcp)
-- [Chill AI Space](https://github.com/Chill-AI-Space)
+- [GitHub](https://github.com/Chill-AI-Space/compress-on-input)
+- [npm](https://www.npmjs.com/package/compress-on-input)

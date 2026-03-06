@@ -14,28 +14,40 @@ describe('estimateTokens', () => {
 
 describe('classifyContent', () => {
   it('classifies image blocks', () => {
-    expect(classifyContent({ type: 'image', data: 'abc', mimeType: 'image/png' }, 500, 2000))
+    expect(classifyContent({ type: 'image', data: 'abc', mimeType: 'image/png' }, 100_000))
       .toBe('image');
   });
 
   it('classifies DOM snapshots by [ref=', () => {
-    expect(classifyContent({ type: 'text', text: '- button "OK" [ref=42]' }, 500, 2000))
+    expect(classifyContent({ type: 'text', text: '- button "OK" [ref=42]' }, 100_000))
       .toBe('dom-snapshot');
   });
 
   it('classifies DOM snapshots by role:', () => {
-    expect(classifyContent({ type: 'text', text: '- role: navigation' }, 500, 2000))
+    expect(classifyContent({ type: 'text', text: '- role: navigation' }, 100_000))
       .toBe('dom-snapshot');
   });
 
-  it('classifies large text over maxTextTokens', () => {
-    const bigText = 'x'.repeat(10000); // 10000 bytes = 2500 tokens > 2000
-    expect(classifyContent({ type: 'text', text: bigText }, 500, 2000))
+  it('classifies large JSON above internal threshold', () => {
+    const bigJson = '[' + 'x'.repeat(3000) + ']'; // ~750 tokens, above JSON internal 500
+    expect(classifyContent({ type: 'text', text: bigJson }, 100_000))
+      .toBe('large-json');
+  });
+
+  it('classifies very large text above text threshold', () => {
+    const hugeText = 'x'.repeat(500_000); // ~125k tokens > 100k
+    expect(classifyContent({ type: 'text', text: hugeText }, 100_000))
       .toBe('large-text');
   });
 
-  it('classifies small text as passthrough', () => {
-    expect(classifyContent({ type: 'text', text: 'small' }, 500, 2000))
+  it('classifies normal text as small-text', () => {
+    expect(classifyContent({ type: 'text', text: 'small' }, 100_000))
+      .toBe('small-text');
+  });
+
+  it('classifies medium text as small-text (below 100k threshold)', () => {
+    const mediumText = 'x'.repeat(40_000); // ~10k tokens, below 100k
+    expect(classifyContent({ type: 'text', text: mediumText }, 100_000))
       .toBe('small-text');
   });
 });

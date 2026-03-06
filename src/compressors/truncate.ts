@@ -12,12 +12,15 @@ interface ContentBlock {
   mimeType?: string;
 }
 
-const PASSTHROUGH_THRESHOLD = 5000; // tokens — below this, don't touch
-const HEAD_TOKENS = 2000;
-const TAIL_TOKENS = 1000;
-const BM25_TARGET = 50000; // BM25 reduces middle to this
-const GEMINI_THRESHOLD = 20000; // middle above this goes to Gemini
-const GEMINI_TARGET = 20000; // Gemini compresses middle to this
+// Compression ratio: target = originalTokens × RATIO
+const RATIO = 0.5;
+
+// Generous head/tail for large texts — preserve context at boundaries
+const HEAD_TOKENS = 10_000;
+const TAIL_TOKENS = 5_000;
+
+// Below this, Gemini overhead > savings
+const MIN_GEMINI_INPUT = 5_000;
 
 /**
  * Split text into head, middle, tail by token budget.
@@ -34,7 +37,6 @@ function splitHeadMiddleTail(
     return { head: text, middle: '', tail: '' };
   }
 
-  // Try to split at newlines for cleaner boundaries
   let headEnd = headChars;
   const headNewline = text.indexOf('\n', headChars - 200);
   if (headNewline > 0 && headNewline < headChars + 200) {
@@ -59,13 +61,12 @@ function splitHeadMiddleTail(
 }
 
 /**
- * Select top chunks by BM25 score, preserving original order, up to token budget.
+ * Select top BM25-ranked chunks preserving original order, up to token budget.
  */
 function selectTopChunks(
   ranked: Array<{ item: { text: string; tokens: number; index: number }; score: number }>,
   tokenBudget: number,
 ): string {
-  // Take highest-scored chunks that fit in budget
   let remaining = tokenBudget;
   const selected: Array<{ text: string; index: number }> = [];
 
@@ -77,22 +78,37 @@ function selectTopChunks(
     if (remaining <= 0) break;
   }
 
-  // Restore original order
   selected.sort((a, b) => a.index - b.index);
   return selected.map((s) => s.text).join('');
 }
 
 /**
- * Smart text compression pipeline:
- * - ≤5k tokens → passthrough
- * - Split into head(2k) + middle + tail(1k)
- * - middle ≤20k → keep as-is
- * - middle 20k–50k → BM25 rank to 20k (or Gemini if available)
- * - middle >50k → BM25 to 50k → Gemini to 20k
+ * BM25 compress: chunk text, rank by relevance, select top chunks to budget.
+ */
+function bm25Compress(text: string, targetTokens: number, toolContext?: ToolContext): string {
+  const query = toolContext ? buildQuery(toolContext) : '';
+  const chunks = chunkText(text);
+
+  const ranked = query.length > 0
+    ? rankBM25(chunks, (c) => c.text, query)
+    : chunks.map((c, i) => ({ item: c, score: 0, index: i }));
+
+  log(`BM25: ${chunks.length} chunks, target=${targetTokens}, query="${query.slice(0, 80)}${query.length > 80 ? '...' : ''}"`);
+
+  return selectTopChunks(ranked, targetTokens);
+}
+
+/**
+ * Compress very large text blocks (100k+ tokens by default).
+ *
+ * Only called for texts above textCompressionThreshold.
+ * Preserves generous head (10k) and tail (5k), compresses middle to ~50%.
+ *
+ * Pipeline: head + [BM25 → Gemini] middle + tail
  */
 export async function compressTruncate(
   block: ContentBlock,
-  maxTokens: number,
+  promptTemplate: string,
   toolContext?: ToolContext,
   geminiApiKey?: string,
 ): Promise<ContentBlock> {
@@ -100,125 +116,83 @@ export async function compressTruncate(
 
   const text = block.text;
   const totalTokens = estimateTokens(text);
+  const targetTokens = Math.round(totalTokens * RATIO);
 
-  if (totalTokens <= PASSTHROUGH_THRESHOLD) return block;
+  if (totalTokens <= targetTokens) return block;
+
+  log(`Truncate: ${totalTokens} tokens → target ${targetTokens} (${Math.round(RATIO * 100)}%)`);
 
   const { head, middle, tail } = splitHeadMiddleTail(text, HEAD_TOKENS, TAIL_TOKENS);
 
-  if (!middle) return block; // text fits in head+tail
+  if (!middle) {
+    // Text fits in head+tail — no middle to compress
+    return block;
+  }
 
   const middleTokens = estimateTokens(middle);
-  log(`Smart truncate: total=${totalTokens}, head=${estimateTokens(head)}, middle=${middleTokens}, tail=${estimateTokens(tail)}`);
+  const middleTarget = Math.max(
+    Math.round(targetTokens - estimateTokens(head) - estimateTokens(tail)),
+    1000,
+  );
 
-  // Middle is small enough — keep everything
-  if (middleTokens <= GEMINI_THRESHOLD) {
-    log(`Smart truncate: middle ≤${GEMINI_THRESHOLD} tokens, keeping as-is`);
-    return { type: 'text', text: head + middle + tail };
-  }
+  log(`Truncate: head=${estimateTokens(head)}, middle=${middleTokens}, tail=${estimateTokens(tail)}, middleTarget=${middleTarget}`);
 
-  // Build relevance query from tool context
-  const query = toolContext ? buildQuery(toolContext) : '';
-  const hasQuery = query.length > 0;
+  let compressedMiddle: string;
 
-  // Chunk the middle section
-  const chunks = chunkText(middle);
-  log(`Smart truncate: ${chunks.length} chunks, query="${query.slice(0, 80)}${query.length > 80 ? '...' : ''}"`);
-
-  // BM25 rank chunks (or keep order if no query)
-  const ranked = hasQuery
-    ? rankBM25(chunks, (c) => c.text, query)
-    : chunks.map((c, i) => ({ item: c, score: 0, index: i }));
-
-  // Determine target for BM25 selection
-  let bm25Target: number;
-  let needsGemini = false;
-
-  if (middleTokens > BM25_TARGET) {
-    // Very large: BM25 → 50k, then Gemini → 20k
-    bm25Target = BM25_TARGET;
-    needsGemini = true;
-    log(`Smart truncate: BM25 → ${BM25_TARGET} tokens, then Gemini → ${GEMINI_TARGET}`);
+  // Step 1: BM25 pre-selection if middle is much larger than target
+  if (middleTokens > middleTarget * 3) {
+    const bm25Target = geminiApiKey ? middleTarget * 2 : middleTarget;
+    compressedMiddle = bm25Compress(middle, bm25Target, toolContext);
   } else {
-    // Medium: just need to get middle down to 20k
-    if (geminiApiKey) {
-      // Gemini available: keep more context, let Gemini compress intelligently
-      bm25Target = middleTokens; // keep all, let Gemini handle it
-      needsGemini = true;
-      log(`Smart truncate: Gemini → ${GEMINI_TARGET} tokens`);
-    } else {
-      // No Gemini: BM25 directly to 20k
-      bm25Target = GEMINI_TARGET;
-      log(`Smart truncate: BM25 → ${GEMINI_TARGET} tokens (no Gemini key)`);
-    }
+    compressedMiddle = middle;
   }
 
-  // Select chunks via BM25
-  let compressedMiddle = selectTopChunks(ranked, bm25Target);
-
-  // Gemini compression pass
-  if (needsGemini && geminiApiKey) {
-    const middleAfterBm25 = estimateTokens(compressedMiddle);
-    if (middleAfterBm25 > GEMINI_THRESHOLD) {
-      const geminiResult = await compressWithGemini(compressedMiddle, GEMINI_TARGET, geminiApiKey);
-      if (geminiResult) {
-        compressedMiddle = geminiResult;
-      } else {
-        // Gemini failed — fallback to BM25-only reduction to 20k
-        log('Smart truncate: Gemini failed, falling back to BM25-only');
-        compressedMiddle = selectTopChunks(ranked, GEMINI_TARGET);
-      }
+  // Step 2: Gemini compression if available and worthwhile
+  const afterBm25 = estimateTokens(compressedMiddle);
+  if (geminiApiKey && afterBm25 > middleTarget && afterBm25 >= MIN_GEMINI_INPUT) {
+    const geminiResult = await compressWithGemini(compressedMiddle, middleTarget, geminiApiKey, promptTemplate);
+    if (geminiResult) {
+      compressedMiddle = geminiResult;
+    } else if (afterBm25 > middleTarget) {
+      compressedMiddle = bm25Compress(middle, middleTarget, toolContext);
     }
+  } else if (afterBm25 > middleTarget) {
+    compressedMiddle = bm25Compress(middle, middleTarget, toolContext);
   }
 
-  const finalMiddleTokens = estimateTokens(compressedMiddle);
-  const droppedTokens = middleTokens - finalMiddleTokens;
+  const finalMiddle = estimateTokens(compressedMiddle);
+  const marker = `\n[... middle compressed: ${middleTokens.toLocaleString()}→${finalMiddle.toLocaleString()} tokens ...]\n`;
 
-  const marker = `\n[... compressed middle: ${middleTokens.toLocaleString()} → ${finalMiddleTokens.toLocaleString()} tokens, ${droppedTokens.toLocaleString()} dropped ...]\n`;
-
-  return {
-    type: 'text',
-    text: head + marker + compressedMiddle + tail,
-  };
+  return { type: 'text', text: head + marker + compressedMiddle + tail };
 }
 
 /**
- * Sync version for backward compatibility — no Gemini, BM25 only.
+ * Sync version — BM25 only, no Gemini.
  */
 export function compressTruncateSync(
   block: ContentBlock,
-  maxTokens: number,
   toolContext?: ToolContext,
 ): ContentBlock {
   if (block.type !== 'text' || !block.text) return block;
 
   const text = block.text;
   const totalTokens = estimateTokens(text);
+  const targetTokens = Math.round(totalTokens * RATIO);
 
-  if (totalTokens <= PASSTHROUGH_THRESHOLD) return block;
+  if (totalTokens <= targetTokens) return block;
 
   const { head, middle, tail } = splitHeadMiddleTail(text, HEAD_TOKENS, TAIL_TOKENS);
   if (!middle) return block;
 
   const middleTokens = estimateTokens(middle);
+  const middleTarget = Math.max(
+    Math.round(targetTokens - estimateTokens(head) - estimateTokens(tail)),
+    1000,
+  );
 
-  if (middleTokens <= GEMINI_THRESHOLD) {
-    return { type: 'text', text: head + middle + tail };
-  }
+  const compressedMiddle = bm25Compress(middle, middleTarget, toolContext);
+  const finalMiddle = estimateTokens(compressedMiddle);
+  const marker = `\n[... middle compressed: ${middleTokens.toLocaleString()}→${finalMiddle.toLocaleString()} tokens ...]\n`;
 
-  const query = toolContext ? buildQuery(toolContext) : '';
-  const chunks = chunkText(middle);
-  const ranked = query
-    ? rankBM25(chunks, (c) => c.text, query)
-    : chunks.map((c, i) => ({ item: c, score: 0, index: i }));
-
-  const compressedMiddle = selectTopChunks(ranked, GEMINI_TARGET);
-  const finalMiddleTokens = estimateTokens(compressedMiddle);
-  const droppedTokens = middleTokens - finalMiddleTokens;
-
-  const marker = `\n[... compressed middle: ${middleTokens.toLocaleString()} → ${finalMiddleTokens.toLocaleString()} tokens, ${droppedTokens.toLocaleString()} dropped ...]\n`;
-
-  return {
-    type: 'text',
-    text: head + marker + compressedMiddle + tail,
-  };
+  return { type: 'text', text: head + marker + compressedMiddle + tail };
 }

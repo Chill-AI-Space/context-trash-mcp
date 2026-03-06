@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { logError } from '../logger.js';
 
-const CACHE_DIR = path.join(os.homedir(), '.cache', 'context-trash');
+const CACHE_DIR = path.join(os.homedir(), '.cache', 'compress-on-input');
 
 const MIN_MEANINGFUL_CHARS = 7;
 
@@ -100,7 +100,7 @@ export function compressOCR(
     return block;
   }
 
-  const tmpFile = path.join(os.tmpdir(), `ctx-trash-${Date.now()}.png`);
+  const tmpFile = path.join(os.tmpdir(), `coi-${Date.now()}.png`);
   try {
     const buffer = Buffer.from(block.data, 'base64');
     fs.writeFileSync(tmpFile, buffer);

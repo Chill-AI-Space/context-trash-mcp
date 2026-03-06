@@ -79,5 +79,10 @@ export function compressDomCleanup(block: ContentBlock): ContentBlock {
   // Append mapping table
   cleaned = cleaned.trimEnd() + buildMappingTable(mappings);
 
+  // Size guard: if cleanup made it bigger, return original
+  if (cleaned.length >= text.length) {
+    return block;
+  }
+
   return { type: 'text', text: cleaned };
 }

@@ -1,48 +1,47 @@
 import { describe, it, expect } from 'vitest';
 import { compressTruncate } from '../src/compressors/truncate.js';
 
+const defaultPrompt = 'Shorten this. Target: approximately {TARGET} tokens.';
+
 describe('compressTruncate', () => {
-  it('passes through short text (below 5k tokens)', async () => {
+  it('passes through short text', async () => {
     const block = { type: 'text', text: 'short text' };
-    const result = await compressTruncate(block, 2000);
+    const result = await compressTruncate(block, defaultPrompt);
     expect(result.text).toBe('short text');
   });
 
-  it('passes through text under 5k token threshold', async () => {
-    // 16000 chars = ~4000 tokens — below PASSTHROUGH_THRESHOLD (5000)
-    const text = 'A'.repeat(16000);
-    const result = await compressTruncate({ type: 'text', text }, 2000);
-    expect(result.text).toBe(text);
+  it('passes through non-text blocks', async () => {
+    const block = { type: 'image', data: 'abc' };
+    const result = await compressTruncate(block, defaultPrompt);
+    expect(result).toBe(block);
   });
 
-  it('compresses text over 5k tokens with head/middle/tail', async () => {
-    // ~120k chars = ~30k tokens — middle will be ~27k, above GEMINI_THRESHOLD (20k)
-    const bigText = Array.from({ length: 1000 }, (_, i) =>
+  it('compresses very large text with head/middle/tail', async () => {
+    // ~500k chars = ~125k tokens — above default 100k threshold
+    const bigText = Array.from({ length: 4000 }, (_, i) =>
       `Line ${i}: ${'content '.repeat(25)}`
     ).join('\n');
-    const result = await compressTruncate({ type: 'text', text: bigText }, 2000);
-    expect(result.text).toContain('[... compressed middle:');
+    const result = await compressTruncate({ type: 'text', text: bigText }, defaultPrompt);
+    expect(result.text).toContain('[... middle compressed');
     expect(result.text!.length).toBeLessThan(bigText.length);
   });
 
-  it('preserves head and tail of large text', async () => {
-    const lines = Array.from({ length: 1000 }, (_, i) =>
+  it('preserves generous head and tail', async () => {
+    const lines = Array.from({ length: 4000 }, (_, i) =>
       `Line ${i}: ${'data '.repeat(25)}`
     ).join('\n');
-    const result = await compressTruncate({ type: 'text', text: lines }, 2000);
-    // Head should contain early lines
+    const result = await compressTruncate({ type: 'text', text: lines }, defaultPrompt);
+    // Head should preserve first ~10k tokens worth of lines
     expect(result.text).toContain('Line 0:');
-    expect(result.text).toContain('Line 1:');
-    // Tail should contain late lines
-    expect(result.text).toContain('Line 999:');
-    expect(result.text).toContain('Line 998:');
+    expect(result.text).toContain('Line 100:');
+    // Tail should preserve last ~5k tokens worth
+    expect(result.text).toContain('Line 3999:');
+    expect(result.text).toContain('Line 3900:');
   });
 
-  it('uses BM25 ranking when tool context is provided', async () => {
-    // Create text with a specific keyword buried in the middle
-    // Need enough total tokens (>5k) and middle >20k for compression to kick in
-    const lines = Array.from({ length: 1000 }, (_, i) => {
-      if (i >= 400 && i <= 420) {
+  it('uses BM25 ranking with tool context', async () => {
+    const lines = Array.from({ length: 4000 }, (_, i) => {
+      if (i >= 2000 && i <= 2050) {
         return `Line ${i}: authentication login security token validation credentials`;
       }
       return `Line ${i}: ${'generic filler content about weather and climate patterns '.repeat(3)}`;
@@ -53,15 +52,8 @@ describe('compressTruncate', () => {
       toolArgs: { path: 'src/auth/login.ts' },
     };
 
-    const result = await compressTruncate({ type: 'text', text: lines }, 2000, toolContext);
-    // BM25 should rank auth-related lines higher
+    const result = await compressTruncate({ type: 'text', text: lines }, defaultPrompt, toolContext);
     expect(result.text).toContain('authentication');
     expect(result.text).toContain('login');
-  });
-
-  it('passes through non-text blocks', async () => {
-    const block = { type: 'image', data: 'abc' };
-    const result = await compressTruncate(block, 2000);
-    expect(result).toBe(block);
   });
 });
